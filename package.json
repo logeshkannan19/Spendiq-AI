@@ -1,8 +1,28 @@
 {
   "name": "spendiq-ai",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "AI-powered expense tracker with WhatsApp-first capture, smart insights, and automated reports",
   "private": true,
   "type": "module",
+  "author": {
+    "name": "Logesh Kannan",
+    "url": "https://github.com/logeshkannan19"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/logeshkannan19/Spendiq"
+  },
+  "keywords": [
+    "expense-tracker",
+    "ai",
+    "whatsapp",
+    "supabase",
+    "nextjs",
+    "react",
+    "typescript",
+    "finance",
+    "budget"
+  ],
   "engines": {
     "node": ">=18.17"
   },
@@ -38,5 +58,6 @@
     "prettier-plugin-tailwindcss": "^0.6.11",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3"
-  }
+  },
+  "license": "MIT"
 }
