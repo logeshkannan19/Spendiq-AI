@@ -1,0 +1,231 @@
+{
+  "name": "Spendiq AI — Expense Handler (WhatsApp → OpenAI → Supabase)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "spendiq/whatsapp",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "WebhookTrigger",
+      "name": "Webhook (WhatsApp)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 260]
+    },
+    {
+      "parameters": {
+        "functionCode": "const msg = $json.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nif (!msg?.text?.body) return [{ json: { ok: true, skip: true } }];\nreturn [{ json: { from: msg.from, text: msg.text.body, messageId: msg.id } }];"
+      },
+      "id": "ExtractMessage",
+      "name": "Extract inbound text",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [480, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": {\"type\":\"json_object\"},\n  \"messages\": [\n    {\"role\":\"system\",\"content\": $env.SPENDIQ_INTENT_PROMPT || \"You are Spendiq AI. Return strict JSON: {\\\"action\\\":\\\"add_expense\\\"|\\\"query_month_total\\\"|\\\"query_category_total\\\"|\\\"set_budget\\\"|\\\"unknown\\\",\\\"amount\\\":number|null,\\\"category\\\":string|null,\\\"note\\\":string|null}.\"},\n    {\"role\":\"user\",\"content\": $json.text}\n  ]\n}"
+      },
+      "id": "OpenAIIntent",
+      "name": "OpenAI — intent + extraction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 260],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const content = $json.choices?.[0]?.message?.content || \"{}\";\nlet intent;\ntry { intent = JSON.parse(content); } catch { intent = { action: \"unknown\", amount: null, category: null, note: null }; }\nreturn [{ json: { from: $node[\"Extract inbound text\"].json.from, text: $node[\"Extract inbound text\"].json.text, intent } }];"
+      },
+      "id": "ParseIntent",
+      "name": "Parse intent JSON",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [920, 260]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/users",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "select", "value": "id,phone" },
+            { "name": "phone", "value": "eq.+{{$json.from}}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "LookupUser",
+      "name": "Supabase — lookup user by phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1140, 260]
+    },
+    {
+      "parameters": {
+        "functionCode": "const rows = Array.isArray($json) ? $json : [];\nconst userId = rows[0]?.id || null;\nreturn [{ json: { userId, from: $node[\"Parse intent JSON\"].json.from, intent: $node[\"Parse intent JSON\"].json.intent } }];"
+      },
+      "id": "NormalizeUser",
+      "name": "Normalize user",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1360, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{!!$json.userId}}", "operation": "isTrue" }]
+        }
+      },
+      "id": "IfHasUser",
+      "name": "If user exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.intent.action}}",
+              "operation": "equals",
+              "value2": "add_expense"
+            }
+          ]
+        }
+      },
+      "id": "IfAddExpense",
+      "name": "If add_expense",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1760, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/expenses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_SERVICE_ROLE_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"user_id\": $json.userId,\n  \"amount\": $json.intent.amount,\n  \"category\": $json.intent.category,\n  \"note\": $json.intent.note\n}"
+      },
+      "id": "InsertExpense",
+      "name": "Supabase — insert expense",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1960, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WHATSAPP_SEND_URL || ('https://graph.facebook.com/v20.0/' + $env.WHATSAPP_PHONE_NUMBER_ID + '/messages')}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$env.WHATSAPP_ACCESS_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": $json.from,\n  \"type\": \"text\",\n  \"text\": {\"body\": \"✅ Logged your expense. Ask: How much did I spend this month? 📊\"}\n}"
+      },
+      "id": "WhatsAppReply",
+      "name": "WhatsApp — reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2160, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.WHATSAPP_SEND_URL || ('https://graph.facebook.com/v20.0/' + $env.WHATSAPP_PHONE_NUMBER_ID + '/messages')}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{$env.WHATSAPP_ACCESS_TOKEN}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": $json.from,\n  \"type\": \"text\",\n  \"text\": {\"body\": \"👋 Please link your number in Spendiq first (Dashboard → Settings → WhatsApp link).\"}\n}"
+      },
+      "id": "WhatsAppNoUser",
+      "name": "WhatsApp — no user found",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1760, 360]
+    }
+  ],
+  "connections": {
+    "Webhook (WhatsApp)": {
+      "main": [[{ "node": "Extract inbound text", "type": "main", "index": 0 }]]
+    },
+    "Extract inbound text": {
+      "main": [[{ "node": "OpenAI — intent + extraction", "type": "main", "index": 0 }]]
+    },
+    "OpenAI — intent + extraction": {
+      "main": [[{ "node": "Parse intent JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse intent JSON": {
+      "main": [[{ "node": "Supabase — lookup user by phone", "type": "main", "index": 0 }]]
+    },
+    "Supabase — lookup user by phone": {
+      "main": [[{ "node": "Normalize user", "type": "main", "index": 0 }]]
+    },
+    "Normalize user": {
+      "main": [[{ "node": "If user exists", "type": "main", "index": 0 }]]
+    },
+    "If user exists": {
+      "main": [
+        [{ "node": "If add_expense", "type": "main", "index": 0 }],
+        [{ "node": "WhatsApp — no user found", "type": "main", "index": 0 }]
+      ]
+    },
+    "If add_expense": {
+      "main": [[{ "node": "Supabase — insert expense", "type": "main", "index": 0 }], []]
+    },
+    "Supabase — insert expense": {
+      "main": [[{ "node": "WhatsApp — reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionTimeout": 60, "timezone": "UTC" },
+  "versionId": "1"
+}
+

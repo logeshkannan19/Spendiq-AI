@@ -1,0 +1,38 @@
+{
+  "name": "Spendiq AI — Budget Alert (Cron → Budget Check → WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": { "item": [{ "mode": "everyHour" }] }
+      },
+      "id": "Cron",
+      "name": "Cron (hourly)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 2,
+      "position": [260, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.APP_URL}}/api/automation/budget-check",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-spendiq-token", "value": "={{$env.AUTOMATION_TOKEN}}" }] },
+        "options": {}
+      },
+      "id": "CallBudgetCheck",
+      "name": "Call Spendiq budget check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [480, 260]
+    }
+  ],
+  "connections": {
+    "Cron (hourly)": {
+      "main": [[{ "node": "Call Spendiq budget check", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionTimeout": 300, "timezone": "UTC" },
+  "versionId": "1"
+}
+
