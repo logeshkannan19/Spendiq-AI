@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
 export async function GET(request: Request) {
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
         cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
       }
     }
@@ -24,4 +24,3 @@ export async function GET(request: Request) {
   }
   return NextResponse.redirect(new URL("/dashboard", url.origin));
 }
-
